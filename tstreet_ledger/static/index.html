@@ -1,0 +1,462 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>T-Street Gnosis &amp; Deal — Ordered Ledger &amp; Control Plane</title>
+  <link rel="stylesheet" href="static/styles.css" />
+</head>
+<body>
+  <div class="app-shell">
+    <header class="topbar">
+      <div class="brand-group">
+        <div class="brand-emblem" aria-hidden="true">TST</div>
+        <div>
+          <div class="brand-title-row">
+            <h1>T-Street Gnosis &amp; Deal</h1>
+            <span class="chain-tag">Gnosis Chain • ID 100</span>
+          </div>
+          <p class="brand-subtitle">
+            Deterministic Ordered Ledger • TST ERC-20 • 2-of-3 Safe{Wallet} Ledger Governance • Continuous Control Plane
+          </p>
+        </div>
+      </div>
+
+      <div class="status-group">
+        <div id="daemonBadge" class="status-pill ok">
+          <span class="pulse-dot"></span>
+          <span id="daemonBadgeText">Control Loop Active</span>
+        </div>
+        <div id="invariantBadge" class="status-pill verified">
+          <span id="invariantBadgeText">Invariants Verified</span>
+        </div>
+      </div>
+    </header>
+
+    <section class="control-bar">
+      <div class="control-meta">
+        <span>Supervisor Tick: <strong id="tickCounter">0</strong></span>
+        <span class="sep">•</span>
+        <span>Cadence: <strong id="tickIntervalLabel">3.0s</strong></span>
+        <span class="sep">•</span>
+        <span>State Root: <code id="stateRootShort">0x…</code></span>
+      </div>
+      <div class="control-actions">
+        <button id="toggleAutoSeqBtn" class="btn btn-secondary" type="button">Pause Auto-Sequencer</button>
+        <button id="priorityBurstBtn" class="btn btn-accent" type="button" title="Enqueue 3 competing transfers (0.05, 2.50, 0.50 TST priority fee) to watch deterministic reordering">
+          Simulate Priority Burst (3 Txs)
+        </button>
+        <button id="sealNowBtn" class="btn btn-primary" type="button">Seal Block Now</button>
+        <button id="circuitBreakerBtn" class="btn btn-danger" type="button">Engage Circuit Breaker</button>
+      </div>
+    </section>
+
+    <div id="toastBanner" class="toast hidden" role="status" aria-live="polite"></div>
+
+    <section class="kpi-grid">
+      <article class="kpi-card">
+        <span class="kpi-label">TST Circulating / Total Supply</span>
+        <div class="kpi-value"><span id="kpiSupply">20,000,000</span> <small>TST</small></div>
+        <div class="kpi-sub">Cap: <span id="kpiMaxSupply">100,000,000</span> TST • Burned: <span id="kpiBurned">0</span> TST</div>
+      </article>
+      <article class="kpi-card">
+        <span class="kpi-label">Ordered Ledger Height</span>
+        <div class="kpi-value">#<span id="kpiHeight">0</span></div>
+        <div class="kpi-sub">Mempool Ready: <strong id="kpiMempool">0</strong> • Epoch <span id="kpiEpoch">1</span></div>
+      </article>
+      <article class="kpi-card">
+        <span class="kpi-label">Active Deal Escrow</span>
+        <div class="kpi-value"><span id="kpiEscrow">0</span> <small>TST</small></div>
+        <div class="kpi-sub"><span id="kpiDealCount">0</span> Total Deals • Settlement Fee: <span id="kpiDealFee">0.25%</span></div>
+      </article>
+      <article class="kpi-card">
+        <span class="kpi-label">Gnosis Safe Treasury &amp; Threshold</span>
+        <div class="kpi-value"><span id="kpiSafeThreshold">2 / 3</span> <small>Ledger Owners</small></div>
+        <div class="kpi-sub">Fees Collected: <span id="kpiFeesCollected">0</span> TST • Safe Nonce <span id="kpiSafeNonce">0</span></div>
+      </article>
+    </section>
+
+    <nav class="tab-nav" aria-label="Control Center Sections">
+      <button class="tab-btn active" data-tab="ledger" type="button">1. Ordered Ledger &amp; Sequencer</button>
+      <button class="tab-btn" data-tab="wallets" type="button">2. TST Token &amp; Wallets</button>
+      <button class="tab-btn" data-tab="deals" type="button">3. Gnosis &amp; Deal Escrow</button>
+      <button class="tab-btn" data-tab="safe" type="button">4. Gnosis Safe &amp; Ledger EIP-712</button>
+      <button class="tab-btn" data-tab="contracts" type="button">5. Solidity Contracts &amp; Deploy</button>
+    </nav>
+
+    <!-- TAB 1: ORDERED LEDGER & SEQUENCER -->
+    <main id="tab-ledger" class="tab-panel active">
+      <div class="two-col">
+        <div class="col-stack">
+          <section class="panel">
+            <div class="panel-header">
+              <div>
+                <h2>Deterministic Mempool Queue</h2>
+                <p class="panel-desc">Ordered by Sender Nonce → Highest Priority Fee (TST) → Monotonic Arrival (ns) → SHA-256 Hash</p>
+              </div>
+              <span class="badge" id="mempoolBadge">0 Ready</span>
+            </div>
+            <div id="mempoolContainer" class="list-box empty-hint">
+              No pending transactions in mempool. Pause Auto-Sequencer and click "Simulate Priority Burst (3 Txs)" to watch live priority ordering!
+            </div>
+          </section>
+
+          <section class="panel">
+            <div class="panel-header">
+              <div>
+                <h2>Queue Ordered TST Transfer</h2>
+                <p class="panel-desc">Submit a transaction into the priority sequencer or seal immediately</p>
+              </div>
+            </div>
+            <form id="quickTransferForm" class="form-grid">
+              <label>
+                <span>From Wallet</span>
+                <select id="txSenderSelect" required></select>
+              </label>
+              <label>
+                <span>To Wallet</span>
+                <select id="txRecipientSelect" required></select>
+              </label>
+              <label>
+                <span>Amount (TST)</span>
+                <input id="txAmountInput" type="number" step="any" min="0.000001" value="1000" required />
+              </label>
+              <label>
+                <span>Sequencer Priority Fee (TST)</span>
+                <input id="txPrioInput" type="number" step="any" min="0" value="0.25" required />
+              </label>
+              <label class="full-span">
+                <span>Settlement Memo</span>
+                <input id="txMemoInput" type="text" placeholder="e.g. OTC settlement tranche / liquidity rebalance" />
+              </label>
+              <div class="form-footer full-span">
+                <label class="checkbox-inline">
+                  <input id="txSealImmediateCheck" type="checkbox" />
+                  <span>Seal block immediately (bypass mempool wait)</span>
+                </label>
+                <button class="btn btn-primary" type="submit">Submit to Ordered Ledger</button>
+              </div>
+            </form>
+          </section>
+
+          <section class="panel">
+            <div class="panel-header">
+              <div>
+                <h2>Continuous Control Supervisor Log</h2>
+                <p class="panel-desc">Autonomous block sealing, expiry sweeps, and invariant watchdog events</p>
+              </div>
+            </div>
+            <div id="auditLogContainer" class="audit-list"></div>
+          </section>
+        </div>
+
+        <div class="col-stack">
+          <section class="panel">
+            <div class="panel-header">
+              <div>
+                <h2>Cryptographic Merkle Proof Inspector</h2>
+                <p class="panel-desc">Click any transaction in a block below to verify its SHA-256 Merkle inclusion path</p>
+              </div>
+            </div>
+            <div id="merkleInspector" class="merkle-box">
+              Select any confirmed transaction hash from Sealed Blocks to inspect and verify its Merkle proof.
+            </div>
+          </section>
+
+          <section class="panel">
+            <div class="panel-header">
+              <div>
+                <h2>Sealed Hash-Chained Blocks</h2>
+                <p class="panel-desc">Immutable blocks with prev_hash link, Merkle root, and post-execution state root</p>
+              </div>
+            </div>
+            <div id="blocksContainer" class="blocks-list"></div>
+          </section>
+        </div>
+      </div>
+    </main>
+
+    <!-- TAB 2: WALLETS & TOKEN -->
+    <main id="tab-wallets" class="tab-panel">
+      <div class="two-col">
+        <section class="panel">
+          <div class="panel-header">
+            <div>
+              <h2>T-Street (TST) Account Directory</h2>
+              <p class="panel-desc">18-decimal precision • Protocol transfer fee <span id="walletFeeBpsLabel">10 bps</span> routed to Gnosis Safe Treasury</p>
+            </div>
+          </div>
+          <div class="table-wrap">
+            <table class="data-table">
+              <thead>
+                <tr>
+                  <th>Account / Desk</th>
+                  <th>Address</th>
+                  <th>Available TST</th>
+                  <th>Escrow Locked</th>
+                  <th>Nonce</th>
+                </tr>
+              </thead>
+              <tbody id="walletsTableBody"></tbody>
+            </table>
+          </div>
+        </section>
+
+        <div class="col-stack">
+          <section class="panel">
+            <div class="panel-header">
+              <div>
+                <h2>Register Desk / Counterparty Wallet</h2>
+                <p class="panel-desc">Derive a deterministic Gnosis address or register an existing 0x address</p>
+              </div>
+            </div>
+            <form id="registerWalletForm" class="form-grid">
+              <label class="full-span">
+                <span>Desk / Wallet Label</span>
+                <input id="newWalletLabel" type="text" placeholder="e.g. T-Street Prime Custody Desk" required />
+              </label>
+              <label class="full-span">
+                <span>Custom 0x Address (optional — leave blank to derive deterministically)</span>
+                <input id="newWalletAddr" type="text" placeholder="0x..." />
+              </label>
+              <div class="form-footer full-span">
+                <button class="btn btn-primary" type="submit">Register Wallet</button>
+              </div>
+            </form>
+          </section>
+
+          <section class="panel">
+            <div class="panel-header">
+              <div>
+                <h2>Deflationary TST Token Burn</h2>
+                <p class="panel-desc">Permanently retire TST from circulation on the ordered ledger</p>
+              </div>
+            </div>
+            <form id="burnForm" class="form-grid">
+              <label>
+                <span>Holder Wallet</span>
+                <select id="burnSenderSelect" required></select>
+              </label>
+              <label>
+                <span>Burn Amount (TST)</span>
+                <input id="burnAmountInput" type="number" step="any" min="0.000001" value="500" required />
+              </label>
+              <label class="full-span">
+                <span>Burn Memo / Redemption Reference</span>
+                <input id="burnReasonInput" type="text" placeholder="e.g. Quarterly treasury buyback & burn" />
+              </label>
+              <div class="form-footer full-span">
+                <button class="btn btn-danger" type="submit">Burn TST</button>
+              </div>
+            </form>
+          </section>
+        </div>
+      </div>
+    </main>
+
+    <!-- TAB 3: GNOSIS & DEAL ESCROW -->
+    <main id="tab-deals" class="tab-panel">
+      <div class="two-col">
+        <section class="panel">
+          <div class="panel-header">
+            <div>
+              <h2>Active &amp; Historical Deals</h2>
+              <p class="panel-desc">Escrow lifecycle: OPEN → FUNDED → DELIVERED → RELEASED (or DISPUTED → Gnosis Safe Arbitration)</p>
+            </div>
+          </div>
+          <div id="dealsContainer" class="deals-list"></div>
+        </section>
+
+        <section class="panel">
+          <div class="panel-header">
+            <div>
+              <h2>Create New T-Street Deal</h2>
+              <p class="panel-desc">Lock terms hash on-ledger and settle atomically in TST with Safe dispute protection</p>
+            </div>
+          </div>
+          <form id="createDealForm" class="form-grid">
+            <label class="full-span">
+              <span>Deal Title</span>
+              <input id="dealTitleInput" type="text" placeholder="e.g. T-Street Block Trade #104 — 50,000 TST" required />
+            </label>
+            <label>
+              <span>Buyer (Escrow Depositor)</span>
+              <select id="dealBuyerSelect" required></select>
+            </label>
+            <label>
+              <span>Seller (Counterparty)</span>
+              <select id="dealSellerSelect" required></select>
+            </label>
+            <label>
+              <span>Escrow Amount (TST)</span>
+              <input id="dealAmountInput" type="number" step="any" min="1" value="25000" required />
+            </label>
+            <label>
+              <span>Expiry Window (Seconds)</span>
+              <input id="dealExpiryInput" type="number" min="10" value="86400" required />
+            </label>
+            <label class="full-span">
+              <span>Settlement Terms &amp; Deliverables</span>
+              <textarea id="dealTermsInput" rows="3" placeholder="Specify delivery milestones, oracle/receipt hashes, or settlement conditions..."></textarea>
+            </label>
+            <div class="form-footer full-span">
+              <button class="btn btn-primary" type="submit">Create Deal on Ledger</button>
+            </div>
+          </form>
+        </section>
+      </div>
+    </main>
+
+    <!-- TAB 4: GNOSIS SAFE & LEDGER HARDWARE SIGNER -->
+    <main id="tab-safe" class="tab-panel">
+      <div class="two-col">
+        <div class="col-stack">
+          <section class="panel">
+            <div class="panel-header">
+              <div>
+                <h2>2-of-3 Gnosis Safe{Wallet} Governance Queue</h2>
+                <p class="panel-desc">Hardware-backed owners co-sign EIP-712 SafeTx digests; auto-executes on-ledger at threshold</p>
+              </div>
+              <code id="safeAddressCode" class="addr-chip">0x…</code>
+            </div>
+            <div id="safeOwnersList" class="owners-strip"></div>
+            <div id="safeProposalsContainer" class="deals-list"></div>
+          </section>
+        </div>
+
+        <div class="col-stack">
+          <section class="panel">
+            <div class="panel-header">
+              <div>
+                <h2>Propose Gnosis Safe Transaction</h2>
+                <p class="panel-desc">Mint TST (within 100M cap), arbitrate disputed deals, or adjust protocol fees</p>
+              </div>
+            </div>
+            <form id="safeProposeForm" class="form-grid">
+              <label>
+                <span>Proposing Ledger Owner</span>
+                <select id="safeProposerSelect" required></select>
+              </label>
+              <label>
+                <span>Safe Governance Action</span>
+                <select id="safeActionSelect" required>
+                  <option value="SAFE_MINT">SAFE_MINT — Mint TST Supply</option>
+                  <option value="RESOLVE_DEAL">RESOLVE_DEAL — Arbitrate Disputed Deal</option>
+                  <option value="SET_FEES">SET_FEES — Update Protocol Fee BPS</option>
+                </select>
+              </label>
+              <label class="full-span">
+                <span>Proposal Title</span>
+                <input id="safeTitleInput" type="text" placeholder="e.g. Mint 250,000 TST to Liquidity Reserve" required />
+              </label>
+
+              <div id="safeMintFields" class="subform full-span">
+                <label>
+                  <span>Mint Recipient</span>
+                  <select id="safeMintRecipientSelect"></select>
+                </label>
+                <label>
+                  <span>Mint Amount (TST)</span>
+                  <input id="safeMintAmountInput" type="number" step="any" min="1" value="250000" />
+                </label>
+              </div>
+
+              <div id="safeResolveFields" class="subform full-span hidden">
+                <label>
+                  <span>Disputed Deal ID</span>
+                  <input id="safeResolveDealId" type="text" placeholder="DEAL-0002" />
+                </label>
+                <label>
+                  <span>Seller Award Share (BPS: 0=Full Buyer Refund, 10000=Full Seller Payout)</span>
+                  <input id="safeResolveBps" type="number" min="0" max="10000" value="5000" />
+                </label>
+              </div>
+
+              <div id="safeFeeFields" class="subform full-span hidden">
+                <label>
+                  <span>Transfer Fee (0–500 bps)</span>
+                  <input id="safeTransferFeeBps" type="number" min="0" max="500" value="10" />
+                </label>
+                <label>
+                  <span>Deal Escrow Fee (0–250 bps)</span>
+                  <input id="safeDealFeeBps" type="number" min="0" max="250" value="25" />
+                </label>
+              </div>
+
+              <div class="form-footer full-span">
+                <button class="btn btn-primary" type="submit">Create EIP-712 Safe Proposal (1/2 Signed)</button>
+              </div>
+            </form>
+          </section>
+
+          <section class="panel">
+            <div class="panel-header">
+              <div>
+                <h2>Ledger Hardware Wallet EIP-712 Payload</h2>
+                <p class="panel-desc">Canonical SafeTx typed data for Gnosis Chain (ID 100) hardware verification</p>
+              </div>
+              <button id="copyEip712Btn" class="btn btn-secondary btn-sm" type="button">Copy JSON</button>
+            </div>
+            <pre id="eip712Preview" class="code-viewer">Select "Inspect EIP-712" on any Safe proposal to view its Ledger signing payload.</pre>
+          </section>
+        </div>
+      </div>
+    </main>
+
+    <!-- TAB 5: SOLIDITY CONTRACTS & DEPLOYMENT -->
+    <main id="tab-contracts" class="tab-panel">
+      <div class="two-col">
+        <section class="panel">
+          <div class="panel-header">
+            <div>
+              <h2>Gnosis Chain + Ledger + Safe{Wallet} Architecture</h2>
+              <p class="panel-desc">Production deployment checklist for Gnosis Mainnet (100) &amp; Chiado Testnet (10200)</p>
+            </div>
+          </div>
+          <div class="guide-content">
+            <div class="guide-step">
+              <strong>1. Physical Ledger + Safe{Wallet} Setup (External Action Required)</strong>
+              <p>
+                Hardware wallets must be ordered directly from Ledger's official store and initialized offline by you.
+                Once initialized, open <a href="https://app.safe.global" target="_blank" rel="noreferrer">app.safe.global</a>
+                on <strong>Gnosis Chain (Chain ID 100)</strong> and create a 2-of-3 Safe with your Ledger addresses.
+              </p>
+            </div>
+            <div class="guide-step">
+              <strong>2. Deploy <code>TStreetToken.sol</code> &amp; <code>TStreetDealEscrow.sol</code></strong>
+              <p>
+                Compile with Solidity <code>^0.8.24</code> (Foundry / Hardhat) and pass your Gnosis Safe address as
+                <code>initialSafeGovernor</code>, <code>initialSafeTreasury</code>, and <code>initialSafeArbiter</code>.
+              </p>
+            </div>
+            <div class="guide-step">
+              <strong>3. Continuous Self-Hosted Control Plane + GitHub CI</strong>
+              <p>
+                GitHub Actions runs automated verification (<code>.github/workflows/tstreet-ledger-ci.yml</code>) on every
+                push/PR, while this self-hosted <code>tstreet_ledger.server</code> daemon provides 24/7 sequencing,
+                expiry sweeps, and invariant circuit-breaker monitoring on your own server or container.
+              </p>
+            </div>
+          </div>
+        </section>
+
+        <section class="panel">
+          <div class="panel-header">
+            <div>
+              <h2>Verified Solidity Source</h2>
+              <p class="panel-desc">Self-contained contracts in <code>tstreet_ledger/contracts/</code></p>
+            </div>
+            <div class="btn-group">
+              <button class="btn btn-secondary btn-sm contract-select-btn active" data-contract="TStreetToken.sol" type="button">TStreetToken.sol</button>
+              <button class="btn btn-secondary btn-sm contract-select-btn" data-contract="TStreetDealEscrow.sol" type="button">TStreetDealEscrow.sol</button>
+            </div>
+          </div>
+          <pre id="contractCodeViewer" class="code-viewer tall">Loading Solidity contracts…</pre>
+        </section>
+      </div>
+    </main>
+  </div>
+
+  <script src="static/app.js"></script>
+</body>
+</html>

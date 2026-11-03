@@ -1,0 +1,48 @@
+# SPDX-License-Identifier: MIT
+name: T-Street Gnosis & Deal Verification
+
+on:
+  push:
+    paths:
+      - "tstreet_ledger/**"
+      - "tests/tstreet/**"
+      - ".github/workflows/tstreet-ledger-ci.yml"
+  pull_request:
+    paths:
+      - "tstreet_ledger/**"
+      - "tests/tstreet/**"
+      - ".github/workflows/tstreet-ledger-ci.yml"
+  workflow_dispatch:
+
+concurrency:
+  group: tstreet-ci-${{ github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+
+jobs:
+  verify-ledger-and-contracts:
+    name: Verify Ordered Ledger, TST Token, Safe & Deal Engine
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+
+      - name: Install lint and test tools
+        run: pip install "ruff<0.16" pytest
+
+      - name: Lint and format check
+        run: |
+          ruff check tstreet_ledger tests/tstreet
+          ruff format --check tstreet_ledger tests/tstreet
+
+      - name: Run T-Street ledger, Gnosis Safe, Deal & Control Plane suite
+        run: python -m pytest tests/tstreet -v
